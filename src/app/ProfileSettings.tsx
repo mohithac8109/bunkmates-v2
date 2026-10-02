@@ -38,6 +38,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useUser } from "../contexts/UserContext";
 import { useThemeToggle } from "../contexts/ThemeContext"; // **@** Added dynamic theme hook
+import { useLanguage } from "../contexts/LanguageContext"; // **@** Dynamic language hook
 import { auth, db } from "../lib/firebase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -134,13 +135,17 @@ const SettingRowMemo = React.memo(function SettingRow({
   return (
     <Pressable
       onPress={onPress}
+      android_ripple={{
+        color: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+      }}
       style={({ pressed }) => [
         styles.modernRow,
-        pressed && {
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.04)"
-            : "rgba(0,0,0,0.03)",
-        },
+        Platform.OS === "ios" &&
+          pressed && {
+            backgroundColor: isDark
+              ? "rgba(255,255,255,0.04)"
+              : "rgba(0,0,0,0.03)",
+          },
       ]}
     >
       <View style={[styles.modernIconBox, { backgroundColor: resolvedIconBg }]}>
@@ -238,6 +243,23 @@ const SettingRowMemo = React.memo(function SettingRow({
 export default function ProfileSettings() {
   const router = useRouter();
 
+  // **@** Ultra-smooth navigation helper to eliminate touch freezes & jitter
+  const isNavigatingRef = useRef(false);
+  const smoothNavigate = useCallback(
+    (route: string) => {
+      if (isNavigatingRef.current) return;
+      isNavigatingRef.current = true;
+      setTimeout(() => {
+        isNavigatingRef.current = false;
+      }, 550);
+
+      requestAnimationFrame(() => {
+        router.push(route as any);
+      });
+    },
+    [router]
+  );
+
   const { user, loading: authLoading } = useUser();
 
   const [loading, setLoading] = useState(true);
@@ -258,6 +280,22 @@ export default function ProfileSettings() {
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [tripCount, setTripCount] = useState(4);
+  const [selectedLanguage, setSelectedLanguage] = useState("English (US)");
+  const { language: activeLanguage, t: tr } = useLanguage();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem("@bunkmates_locale_preferences");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.language) setSelectedLanguage(parsed.language);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
 
   // **@** In-Settings Search states for searching setting features/options
   const [isSearching, setIsSearching] = useState(false);
@@ -276,13 +314,25 @@ export default function ProfileSettings() {
     });
 
   // **@** Dynamic theme integration matching system or user preference
+  // Helper for dynamic alpha tints
+  const hexToRgba = (hex: string, alpha: number) => {
+    const cleanHex = hex.replace("#", "");
+    const fullHex = cleanHex.length === 3 ? cleanHex.split("").map((c) => c + c).join("") : cleanHex;
+    const r = parseInt(fullHex.substring(0, 2), 16) || 255;
+    const g = parseInt(fullHex.substring(2, 4), 16) || 90;
+    const b = parseInt(fullHex.substring(4, 6), 16) || 95;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   let themeMode: "dark" | "light" | "system" = "system";
   let toggleThemeFn: () => void = () => {};
+  let dynamicAccent = "#FF5A5F";
   try {
     const themeContext = useThemeToggle();
     if (themeContext) {
       themeMode = themeContext.mode;
       toggleThemeFn = themeContext.toggleTheme;
+      if (themeContext.accentColor) dynamicAccent = themeContext.accentColor;
     }
   } catch (e) {
     // safe fallback
@@ -292,7 +342,7 @@ export default function ProfileSettings() {
     themeMode === "dark" ||
     (themeMode === "system" && Appearance.getColorScheme() === "dark");
 
-  // **@** Memoized — only rebuilds when theme changes, not on every render
+  // **@** Memoized — only rebuilds when theme or accent changes, not on every render
   const colors = useMemo(() => ({
     bg: isDark ? "#0A0A0C" : "#F4F6F9",
     card: isDark ? "#141418" : "#FFFFFF",
@@ -301,15 +351,15 @@ export default function ProfileSettings() {
     textPrimary: isDark ? "#FFFFFF" : "#11141A",
     textSecondary: isDark ? "#8E95A2" : "#7E8590",
     sectionHeader: isDark ? "#8E95A2" : "#7E8590",
-    coral: "#FF5A5F",
-    coralAccent: "#FF5A5F",
-    coralBg: isDark ? "rgba(255, 90, 95, 0.16)" : "rgba(255, 90, 95, 0.09)",
+    coral: dynamicAccent,
+    coralAccent: dynamicAccent,
+    coralBg: isDark ? hexToRgba(dynamicAccent, 0.16) : hexToRgba(dynamicAccent, 0.09),
     greyishWhite: isDark ? "#E2E8F0" : "#4B5563", // **@** Greyish-white icon color as requested
     iconBoxBg: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)", // **@** Subtle neutral icon box
     chevron: isDark ? "#555860" : "#B4B9C2",
     logoutBorder: isDark ? "rgba(255, 90, 95, 0.45)" : "rgba(255, 90, 95, 0.4)",
     logoutBg: isDark ? "rgba(255, 90, 95, 0.08)" : "rgba(255, 90, 95, 0.04)",
-  }), [isDark]);
+  }), [isDark, dynamicAccent]);
 
   // **@** Track scroll position for header mask gradient reveal on slide/scroll
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -730,7 +780,7 @@ export default function ProfileSettings() {
       iconColor: colors.greyishWhite,
       onPress: () => {
         setIsSearching(false);
-        router.push("/ProfileEdit" as any);
+        smoothNavigate("/ProfileEdit");
       },
     },
     {
@@ -742,7 +792,7 @@ export default function ProfileSettings() {
       icon: "shield-checkmark-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/accounts" as any);
+        smoothNavigate("/accounts");
       },
     },
     {
@@ -754,7 +804,7 @@ export default function ProfileSettings() {
       icon: "lock-closed-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Privacy & Data", "Profile visibility and tracking options are kept private.");
+        smoothNavigate("/privacy");
       },
     },
     {
@@ -778,11 +828,10 @@ export default function ProfileSettings() {
       icon: "qr-code-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/qr-code" as any);
+        smoothNavigate("/qr-code");
       },
     },
 
-    // TRIP EXPERIENCE
     {
       id: "notifications",
       category: "TRIP EXPERIENCE",
@@ -792,7 +841,7 @@ export default function ProfileSettings() {
       icon: "notifications-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/notifications" as any);
+        smoothNavigate("/notification");
       },
     },
     {
@@ -805,7 +854,7 @@ export default function ProfileSettings() {
       icon: "compass-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Trip Preferences", "Configure your travel preferences and accommodation styles.");
+        smoothNavigate("/trip-preference");
       },
     },
     {
@@ -817,7 +866,7 @@ export default function ProfileSettings() {
       icon: "cash-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/budget" as any);
+        smoothNavigate("/currency-expenses");
       },
     },
     {
@@ -829,7 +878,7 @@ export default function ProfileSettings() {
       icon: "cloud-download-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Offline & Downloads", "Offline maps cache and local assets storage management.");
+        smoothNavigate("/offline-downloads");
       },
     },
     {
@@ -841,7 +890,7 @@ export default function ProfileSettings() {
       icon: "location-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Maps & Navigation", "Navigation route preferences and scenic route toggles.");
+        smoothNavigate("/maps-navigation");
       },
     },
     {
@@ -853,7 +902,7 @@ export default function ProfileSettings() {
       icon: "partly-sunny-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/(tabs)/aqi" as any);
+        smoothNavigate("/weather");
       },
     },
     {
@@ -865,7 +914,7 @@ export default function ProfileSettings() {
       icon: "airplane-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/trips" as any);
+        smoothNavigate("/trips");
       },
     },
 
@@ -884,32 +933,33 @@ export default function ProfileSettings() {
           : "Light Mode",
       icon: "color-filter-outline",
       onPress: () => {
-        toggleThemeFn();
+        setIsSearching(false);
+        smoothNavigate("/appearance");
       },
     },
     {
       id: "language-region",
       category: "APP SETTINGS",
       title: "Language & Region",
-      subtitle: "English (US), locale settings",
-      keywords: ["language", "region", "country", "english", "locale", "timezone"],
-      rightText: "English (US)",
+      subtitle: `${selectedLanguage}, locale formats`,
+      keywords: ["language", "region", "country", "english", "locale", "timezone", "hindi", "date", "time"],
+      rightText: selectedLanguage,
       icon: "globe-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Language & Region", "Language is currently set to English (US).");
+        smoothNavigate("/language-region");
       },
     },
     {
       id: "accessibility",
       category: "APP SETTINGS",
       title: "Accessibility",
-      subtitle: "Font scale, high contrast features",
-      keywords: ["accessibility", "font", "contrast", "size", "zoom", "reader"],
+      subtitle: "High contrast, motion, touch targets & color blind filters",
+      keywords: ["accessibility", "font", "contrast", "size", "zoom", "reader", "haptic", "motion", "color blind", "vision"],
       icon: "accessibility-outline",
       onPress: () => {
         setIsSearching(false);
-        Alert.alert("Accessibility", "Dynamic font scaling and high contrast features active.");
+        smoothNavigate("/accessibility");
       },
     },
     {
@@ -921,21 +971,10 @@ export default function ProfileSettings() {
       icon: "chatbubble-ellipses-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/chat-settings" as any);
+        smoothNavigate("/chat-settings");
       },
     },
-    {
-      id: "general-settings",
-      category: "APP SETTINGS",
-      title: "General Settings",
-      subtitle: "App Theme, Language, and Location",
-      keywords: ["general", "settings", "default", "preferences"],
-      icon: "settings-outline",
-      onPress: () => {
-        setIsSearching(false);
-        router.push("/general-settings" as any);
-      },
-    },
+
     {
       id: "ai-features",
       category: "APP SETTINGS",
@@ -947,7 +986,7 @@ export default function ProfileSettings() {
       iconBg: colors.iconBoxBg,
       onPress: () => {
         setIsSearching(false);
-        router.push("/ai-settings" as any);
+        smoothNavigate("/ai-settings");
       },
     },
 
@@ -961,7 +1000,7 @@ export default function ProfileSettings() {
       icon: "chatbubble-question-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/help" as any);
+        smoothNavigate("/help");
       },
     },
     {
@@ -973,7 +1012,7 @@ export default function ProfileSettings() {
       icon: "megaphone-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/feedback" as any);
+        smoothNavigate("/feedback");
       },
     },
     {
@@ -986,19 +1025,6 @@ export default function ProfileSettings() {
       onPress: () => {
         setIsSearching(false);
         Alert.alert("Rate BunkMates", "Thank you for rating BunkMates 5 stars! ⭐⭐⭐⭐⭐");
-      },
-    },
-    {
-      id: "about-app",
-      category: "SUPPORT",
-      title: "About BunkMates",
-      subtitle: "Version 3.4.1 (Stable)",
-      keywords: ["about", "version", "build", "info", "release"],
-      icon: "information-circle-outline",
-      onPress: () => {
-        setIsSearching(false);
-        handleBuildTap();
-        setCurrentPage("about");
       },
     },
     {
@@ -1023,7 +1049,19 @@ export default function ProfileSettings() {
       icon: "person-add-outline",
       onPress: () => {
         setIsSearching(false);
-        router.push("/inviteFriend" as any);
+        smoothNavigate("/inviteFriend");
+      },
+    },
+    {
+      id: "about-app",
+      category: "SUPPORT",
+      title: "About BunkMates",
+      subtitle: "Version 3.4.1 (Build 4108)",
+      keywords: ["about", "version", "build", "info", "release", "bunkmates"],
+      icon: "information-circle-outline",
+      onPress: () => {
+        setIsSearching(false);
+        smoothNavigate("/about");
       },
     },
     ...(isDeveloper
@@ -2288,7 +2326,7 @@ export default function ProfileSettings() {
                 { backgroundColor: colors.card, borderColor: colors.cardBorder },
                 pressed && styles.pressed,
               ]}
-              onPress={() => router.push("/qr-code" as any)}
+              onPress={() => smoothNavigate("/qr-code")}
               accessibilityLabel="QR Code"
             >
               <Ionicons
@@ -2531,7 +2569,7 @@ export default function ProfileSettings() {
             { backgroundColor: colors.card, borderColor: colors.cardBorder },
             pressed && styles.pressed,
           ]}
-          onPress={() => router.push("/ProfileEdit" as any)}
+          onPress={() => smoothNavigate("/ProfileEdit")}
           accessibilityRole="button"
           accessibilityLabel="Edit Profile"
         >
@@ -2592,18 +2630,13 @@ export default function ProfileSettings() {
             icon="shield-checkmark-outline"
             title="Account & Security"
             subtitle="Password, Two-factor auth, session logs"
-            onPress={() => router.push("/accounts" as any)}
+            onPress={() => smoothNavigate("/accounts")}
           />
           <SettingRow
             icon="lock-closed-outline"
             title="Privacy & Data"
             subtitle="Profile visibility, location logs"
-            onPress={() =>
-              Alert.alert(
-                "Privacy & Data",
-                "Profile visibility and tracking options are kept private."
-              )
-            }
+            onPress={() => smoothNavigate("/privacy")}
           />
           <SettingRow
             icon="link-outline"
@@ -2640,54 +2673,39 @@ export default function ProfileSettings() {
             icon="notifications-outline"
             title="Notifications"
             subtitle="Trip updates, chat pings, alerts"
-            onPress={() => router.push("/notifications" as any)}
+            onPress={() => smoothNavigate("/notification")}
           />
           <SettingRow
             icon="compass-outline"
             title="Trip Preferences"
             badge="Hot"
             subtitle="Dietary rules, accommodation styles, travel pace"
-            onPress={() =>
-              Alert.alert(
-                "Trip Preferences",
-                "Configure your travel preferences and accommodation styles."
-              )
-            }
+            onPress={() => smoothNavigate("/trip-preference")}
           />
           <SettingRow
             icon="cash-outline"
             title="Currency & Expenses"
             subtitle="Default Split bills, home currency USD"
-            onPress={() => router.push("/budget" as any)}
+            onPress={() => smoothNavigate("/currency-expenses")}
           />
           <SettingRow
             icon="cloud-download-outline"
             title="Offline & Downloads"
             subtitle="Storage management, offline maps"
-            onPress={() =>
-              Alert.alert(
-                "Offline & Downloads",
-                "Offline maps cache and local assets storage management."
-              )
-            }
+            onPress={() => smoothNavigate("/offline-downloads")}
           />
           <SettingRow
             icon="location-outline"
             title="Maps & Navigation"
             subtitle="Offline cache, route preferences"
-            onPress={() =>
-              Alert.alert(
-                "Maps & Navigation",
-                "Navigation route preferences and scenic route toggles."
-              )
-            }
+            onPress={() => smoothNavigate("/maps-navigation")}
           />
           <SettingRow
             icon="partly-sunny-outline"
-            title="Weather Alerts"
+            title="Weather"
             subtitle="Local weather forecasts & rain warnings"
             isLast
-            onPress={() => router.push("/(tabs)/aqi" as any)}
+            onPress={() => smoothNavigate("/weather")}
           />
         </View>
 
@@ -2710,7 +2728,7 @@ export default function ProfileSettings() {
         >
           <SettingRow
             icon="color-filter-outline"
-            title="Appearance"
+            title={tr("appearance", "Appearance")}
             rightText={
               themeMode === "system"
                 ? "System (Auto)"
@@ -2718,51 +2736,35 @@ export default function ProfileSettings() {
                 ? "Dark Mode"
                 : "Light Mode"
             }
-            onPress={toggleThemeFn}
+            onPress={() => smoothNavigate("/appearance")}
           />
           <SettingRow
             icon="globe-outline"
-            title="Language & Region"
-            rightText="English (US)"
-            onPress={() =>
-              Alert.alert(
-                "Language & Region",
-                "Language is currently set to English (US)."
-              )
-            }
+            title={tr("language_region_title", "Language & Region")}
+            rightText={activeLanguage || selectedLanguage}
+            onPress={() => smoothNavigate("/language-region")}
           />
           <SettingRow
             icon="accessibility-outline"
             title="Accessibility"
-            subtitle="Font scale, high contrast features"
-            onPress={() =>
-              Alert.alert(
-                "Accessibility",
-                "Dynamic font scaling and high contrast features active."
-              )
-            }
+            subtitle="Vision support, high contrast, motion & haptics"
+            onPress={() => smoothNavigate("/accessibility")}
           />
           {/* Preserved v2 feature: Chats */}
           <SettingRow
             icon="chatbubble-ellipses-outline"
             title="Chats"
             subtitle="Theme, Wallpapers, and Chat Settings"
-            onPress={() => router.push("/chat-settings" as any)}
+            onPress={() => smoothNavigate("/chat-settings")}
           />
-          {/* Preserved v2 feature: General Settings */}
-          <SettingRow
-            icon="settings-outline"
-            title="General Settings"
-            subtitle="App Theme, Language, and Location"
-            onPress={() => router.push("/general-settings" as any)}
-          />
+
           {/* Preserved v2 feature: AI Features with greyish-white icon */}
           <SettingRow
             icon="sparkles"
             title="AI Features"
             subtitle="Configure Groq API Key & AI settings"
             isLast
-            onPress={() => router.push("/ai-settings" as any)}
+            onPress={() => smoothNavigate("/ai-settings")}
           />
         </View>
 
@@ -2787,13 +2789,13 @@ export default function ProfileSettings() {
             icon="chatbubble-question-outline"
             title="Help & Support"
             subtitle="Guides, FAQs, 24/7 BunkMates bot"
-            onPress={() => router.push("/help" as any)}
+            onPress={() => smoothNavigate("/help")}
           />
           <SettingRow
             icon="megaphone-outline"
             title="Send Feedback"
             subtitle="Feature requests, report bugs"
-            onPress={() => router.push("/feedback" as any)}
+            onPress={() => smoothNavigate("/feedback")}
           />
           <SettingRow
             icon="ribbon-outline"
@@ -2805,15 +2807,6 @@ export default function ProfileSettings() {
                 "Thank you for rating BunkMates 5 stars! ⭐⭐⭐⭐⭐"
               )
             }
-          />
-          <SettingRow
-            icon="information-circle-outline"
-            title="About BunkMates"
-            subtitle="Version 3.4.1 (Stable)"
-            onPress={() => {
-              handleBuildTap();
-              setCurrentPage("about");
-            }}
           />
           {/* Preserved v2 feature: Licenses */}
           <SettingRow
@@ -2828,8 +2821,7 @@ export default function ProfileSettings() {
             icon="person-add-outline"
             title="Invite a Friend"
             subtitle="Share BunkMates with travel companions"
-            isLast={!isDeveloper}
-            onPress={() => router.push("/inviteFriend" as any)}
+            onPress={() => smoothNavigate("/inviteFriend")}
           />
           {/* Preserved v2 feature: Developer tools if unlocked */}
           {isDeveloper && (
@@ -2837,10 +2829,17 @@ export default function ProfileSettings() {
               icon="code-slash-outline"
               title="Developer Tools & Sandbox"
               subtitle="Access internal tools, sandboxes, and developer routes"
-              isLast
               onPress={() => setCurrentPage("developers")}
             />
           )}
+          {/* About BunkMates placed at the very end of Settings */}
+          <SettingRow
+            icon="information-circle-outline"
+            title="About BunkMates"
+            subtitle="Version 3.4.1 (Build 4108)"
+            isLast
+            onPress={() => smoothNavigate("/about")}
+          />
         </View>
 
         {/* =====================================================
@@ -2923,6 +2922,26 @@ function DevToolSandboxView({
   toolId: string;
   onBack: () => void;
 }) {
+  let isDark = true;
+  try {
+    const themeContext = useThemeToggle();
+    if (themeContext) {
+      isDark =
+        themeContext.mode === "dark" ||
+        (themeContext.mode === "system" && Appearance.getColorScheme() === "dark");
+    }
+  } catch (e) {}
+
+  const colors = useMemo(
+    () => ({
+      card: isDark ? "#141418" : "#FFFFFF",
+      cardBorder: isDark ? "rgba(255, 255, 255, 0.08)" : "#EBECEF",
+      textPrimary: isDark ? "#FFFFFF" : "#11141A",
+      textSecondary: isDark ? "#8E95A2" : "#7E8590",
+    }),
+    [isDark]
+  );
+
   // Weather state
   const [selectedCity, setSelectedCity] = useState("Goa 🏖️");
   const weatherCities = ["Goa 🏖️", "Manali 🏔️", "Rishikesh 🌊", "Leh 🗻", "Bali 🌴"];

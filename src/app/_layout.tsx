@@ -4,7 +4,7 @@ import {
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
 
-import { View } from "react-native";
+import { View, Platform } from "react-native";
 
 import { UserProvider } from "../contexts/UserContext";
 
@@ -19,6 +19,7 @@ import { CallProvider } from "../contexts/CallContext";
 import NotificationsHandler from "../components/NotificationsHandler";
 import IncomingCallHandler from "../components/IncomingCallHandler";
 import { GradientProvider } from "../contexts/GradientContext";
+import { LanguageProvider } from "../contexts/LanguageContext";
 
 function LayoutContent() {
   const { themeColors } = useThemeToggle();
@@ -42,7 +43,8 @@ function LayoutContent() {
               <Stack
                 screenOptions={{
                   headerShown: false,
-                  contentStyle: { backgroundColor: "transparent" },
+                  contentStyle: { backgroundColor: themeColors.background },
+                  animation: Platform.OS === "ios" ? "default" : "slide_from_right",
                 }}
               />
 
@@ -61,7 +63,9 @@ export default function RootLayout() {
       style={{ flex: 1 }}
     >
       <ThemeToggleProvider>
-        <LayoutContent />
+        <LanguageProvider>
+          <LayoutContent />
+        </LanguageProvider>
       </ThemeToggleProvider>
     </GestureHandlerRootView>
   );
