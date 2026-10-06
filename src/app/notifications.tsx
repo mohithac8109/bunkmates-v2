@@ -1091,42 +1091,6 @@ export default function Notifications() {
     };
 
   /* ==========================================================
-     LOADING
-  ========================================================== */
-
-  if (loading) {
-    return (
-      <SafeAreaView
-        style={styles.container}
-      >
-        <StatusBar
-          barStyle="light-content"
-          backgroundColor="#080808"
-        />
-
-        <View
-          style={
-            styles.loadingContainer
-          }
-        >
-          <ActivityIndicator
-            size="large"
-            color="#ff9d18"
-          />
-
-          <Text
-            style={
-              styles.loadingText
-            }
-          >
-            Loading notifications...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  /* ==========================================================
      UI
   ========================================================== */
 
@@ -1163,10 +1127,23 @@ export default function Notifications() {
         </Pressable>
 
         <Text
-          style={styles.headerTitle}
+          style={[styles.headerTitle, { flex: 1 }]}
         >
           Notifications
         </Text>
+
+        <Pressable
+          onPress={() => router.push("/notification" as any)}
+          hitSlop={8}
+          style={{ padding: 4 }}
+          accessibilityLabel="Notification Settings"
+        >
+          <Ionicons
+            name="options-outline"
+            size={22}
+            color="#eeeeee"
+          />
+        </Pressable>
       </View>
 
       {/* ======================================================
@@ -1243,8 +1220,12 @@ export default function Notifications() {
           styles.listContent
         }
       >
-        {filteredNotifications.length ===
-        0 ? (
+        {loading && notifications.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#ff9d18" />
+            <Text style={styles.loadingText}>Loading notifications...</Text>
+          </View>
+        ) : filteredNotifications.length === 0 ? (
           <View
             style={
               styles.emptyContainer
